@@ -31,44 +31,48 @@ class RedBlue:
         self.triggers = [False, False]
 
         msg = state.message
-        if not msg:
-            return
-        
-        if msg.type == smolmidi.NOTE_ON:
-            if msg.channel != self.mode:
-                self.reset(msg.channel)
+        if msg:
+            if msg.type == smolmidi.NOTE_ON:
+                if msg.channel != self.mode:
+                    self.reset(msg.channel)
 
-            note = msg.data[0]                
-            if self.mode == UNISON:
-                latest_note = last.latest_note
-                if latest_note is None:
-                    self.note_on(note, RED)
-                    self.note_on(note, BLUE)
-                else:
-                    self.legato(latest_note, note, RED)
-                    self.legato(latest_note, note, BLUE)
-            elif self.mode == DUOPHONIC:
-                assignment_index = self.select_voice()
-                self.note_on(note, assignment_index)
-                self.reverse = not self.reverse
+                note = msg.data[0]
+                if self.mode == UNISON:
+                    latest_note = last.latest_note
+                    if latest_note is None:
+                        self.note_on(note, RED)
+                        self.note_on(note, BLUE)
+                    else:
+                        glide = state.cc(64) >= 0.5 or state.cc(65) >= 0.5
+                        self.legato(latest_note, note, RED, glide)
+                        self.legato(latest_note, note, BLUE, glide)
+                elif self.mode == DUOPHONIC:
+                    assignment_index = self.select_voice()
+                    self.note_on(note, assignment_index)
+                    self.reverse = not self.reverse
 
-        elif msg.type == smolmidi.NOTE_OFF:
-            note = msg.data[0]
-            if self.mode == UNISON:
-                latest_note = state.latest_note
-                if latest_note is None:
-                    self.note_off(note)
-                else:
-                    self.legato(note, latest_note, RED)
-                    self.legato(note, latest_note, BLUE)
+            elif msg.type == smolmidi.NOTE_OFF:
+                note = msg.data[0]
+                if self.mode == UNISON:
+                    latest_note = state.latest_note
+                    if latest_note is None:
+                        self.note_off(note)
+                    else:
+                        glide = state.cc(64) >= 0.5 or state.cc(65) >= 0.5
+                        self.legato(note, latest_note, RED, glide)
+                        self.legato(note, latest_note, BLUE, glide)
 
         if (note_red := self.assignments[RED][0]):
+            if isinstance(note_red, SlewLimiter):
+                note_red = note_red.output
             outputs.cv_a = helpers.voct(note_red, state.pitch_bend, range=12)
             if self.triggers[RED]:
                 outputs.retrigger_gate_1()
         else:
             outputs.gate_1 = False
         if (note_blue := self.assignments[BLUE][0]):
+            if isinstance(note_blue, SlewLimiter):
+                note_blue = note_blue.output
             outputs.cv_b = helpers.voct(note_blue, state.pitch_bend, range=12)
             if self.triggers[BLUE]:
                 outputs.retrigger_gate_2()
@@ -93,8 +97,14 @@ class RedBlue:
         self.gates[assignment_index] = True
         self.triggers[assignment_index] = True
 
-    def legato(self, from_note, to_note, assignment_index):
+    def legato(self, from_note, to_note, assignment_index, glide=False):
         now = time.monotonic_ns()
+
+        if glide:
+            slew = self.slews[assignment_index]
+            slew.last = from_note
+            slew.target = to_note
+            to_note = slew
 
         self.assignments[assignment_index][0] = to_note
         self.assignments[assignment_index][1] = now

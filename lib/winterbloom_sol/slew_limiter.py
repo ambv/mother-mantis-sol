@@ -59,6 +59,14 @@ class SlewLimiter:
         self._set_time = 0
 
     @property
+    def last(self):
+        return self._last
+
+    @last.setter
+    def last(self, value):
+        self._last = value
+
+    @property
     def target(self):
         return self._target
 

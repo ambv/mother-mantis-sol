@@ -24,7 +24,7 @@ and stereo arps.
 
 This is roughly based on
 [aiotone.redblue](https://github.com/ambv/aiotone/blob/master/aiotone/redblue.py)
-which also supports accents and glide.
+which also supports accents.
 
 Aftertouch should be supported as well. Maybe CV C and CV D should output 
 red cutoff and blue cutoff respectively, to allow for polyphonic AT?
@@ -37,4 +37,6 @@ This is based on Sol 2022.10.17 with the following changes:
 - neopixel.mpy is replaced with
   [the latest release](https://github.com/adafruit/Adafruit_CircuitPython_NeoPixel/releases)
   for Circuit Python 9 (Mother Mantis runs on 9.0.5)
+- SlewLimiter has a writable `last` property, which enables you to use
+  it only selectively
 - the LED pulses on quarter notes like Ableton Live's click track
