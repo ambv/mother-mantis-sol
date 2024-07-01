@@ -84,7 +84,11 @@ class RedBlue:
 
     def note_off(self, note):
         for n in VOICES:
-            if self.assignments[n][0] == note:
+            assign = self.assignments[n][0]
+            if (
+                assign == note
+                or (isinstance(assign, SlewLimiter) and assign.target == note)
+            ):
                 self.assignments[n][0] = None
                 self.triggers[n] = False
                 self.gates[n] = False
