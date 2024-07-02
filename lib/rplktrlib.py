@@ -10,6 +10,7 @@ VOICES = RED, BLUE
 RVOICES = BLUE, RED
 UNISON = 0
 DUOPHONIC = 1
+ACCENT_VOLUME = 92
 
 
 class RedBlue:
@@ -23,11 +24,9 @@ class RedBlue:
         self.mode = mode
         self.reverse = False
         self.slews =[SlewLimiter(0.1), SlewLimiter(0.1)]
+        self.is_accent = False
 
     def update(self, last, state, outputs):
-        # clear all triggers from the last update,
-        # so we can properly re-trigger them if
-        # new notes have shown up.
         self.triggers = [False, False]
 
         msg = state.message
@@ -37,6 +36,9 @@ class RedBlue:
                     self.reset(msg.channel)
 
                 note = msg.data[0]
+                velo = msg.data[1]
+
+                self.is_accent = velo >= ACCENT_VOLUME
                 if self.mode == UNISON:
                     latest_note = last.latest_note
                     if latest_note is None:
@@ -79,8 +81,11 @@ class RedBlue:
         else:
             outputs.gate_2 = False
 
+        # rez
         outputs.cv_c = -5.0 + state.cc(1) * 10.0
-        outputs.cv_d = -5.0 + state.cc(4) * 10.0
+        # cutoff
+        accent_bump = 0.25 if self.is_accent else 0.0
+        outputs.cv_d = -5.0 + min(state.cc(4) + accent_bump, 1.0) * 10.0
 
     def note_off(self, note):
         for n in VOICES:
@@ -127,6 +132,6 @@ class RedBlue:
                 oldest_time = self.assignments[n][1]
                 oldest_index = n
         else:
-                # No free voice, assign to the oldest one.
+            # No free voice, assign to the oldest one.
             assignment_index = oldest_index
         return assignment_index
