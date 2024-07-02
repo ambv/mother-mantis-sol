@@ -1,8 +1,7 @@
-import gc
-import time
-
 import micropython
+import supervisor
 from winterbloom_smolmidi import NOTE_ON, NOTE_OFF, CC
+from winterbloom_sol.helpers import note_to_volts_per_octave, offset_for_pitch_bend
 from winterbloom_sol import helpers, SlewLimiter
 
 
@@ -23,7 +22,7 @@ class RedBlue:
         self.reset(UNISON)
     
     def reset(self, mode):
-        self.assignments = [[None, 0], [None, 0]]
+        self.voct = [None, None]
         self.gates = [False, False]
         self.triggers = [False, False]
         self.mode = mode
@@ -36,13 +35,17 @@ class RedBlue:
         global counter, last_out
 
         counter += 1
-        self.triggers = [False, False]
+        
+        micropython.heap_lock()
+        self.triggers[0] = False
+        self.triggers[1] = False
 
         if msg:
             if msg.type == NOTE_ON:
-                gc.disable()
                 if msg.channel != self.mode:
+                    micropython.heap_unlock()
                     self.reset(msg.channel)
+                    micropython.heap_lock()
 
                 note = msg.data[0]
                 velo = msg.data[1]
@@ -51,7 +54,7 @@ class RedBlue:
                 if self.mode == UNISON:
                     notes = state.notes
                     if len(notes) > 1:
-                        glide = state.cc(64) >= 0.5 or state.cc(65) >= 0.5
+                        glide = state._cc[64] >= 64 or state._cc[65] >= 64
                         self.legato(notes[-2], note, RED, glide)
                         self.legato(notes[-2], note, BLUE, glide)
                     else:
@@ -67,7 +70,7 @@ class RedBlue:
                 if self.mode == UNISON:
                     notes = state.notes
                     if notes:
-                        glide = state.cc(64) >= 0.5 or state.cc(65) >= 0.5
+                        glide = state._cc[64] >= 64 or state._cc[65] >= 64
                         self.legato(note, notes[-1], RED, glide)
                         self.legato(note, notes[-1], BLUE, glide)
                     else:
@@ -76,27 +79,36 @@ class RedBlue:
                     self.note_off(note)
             
             elif msg.type == CC:
+                micropython.heap_unlock()
                 if msg.data[0] == 120 or msg.data[0] == 123:
                     self.reset(self.mode)
                 # elif msg.data[0] == 126:
                 #     self.reset(UNISON)
                 # elif msg.data[0] == 127:
                 #     self.reset(DUOPHONIC)
+                micropython.heap_lock()
 
-        if (note_red := self.assignments[RED][0]):
+        if (note_red := self.voct[RED]):
             if note_red.__class__ is SlewLimiter:
                 note_red = note_red.output
-            outputs.cv_a = helpers.voct(note_red, state.pitch_bend, range=12)
+            outputs._cv_a.voltage = (
+                note_to_volts_per_octave(note_red)
+                + offset_for_pitch_bend(state.pitch_bend, range=12)
+            )
             if self.triggers[RED]:
-                outputs.retrigger_gate_1()
+                outputs._gate_1_retrigger.retrigger()
         else:
             outputs.gate_1 = False
-        if (note_blue := self.assignments[BLUE][0]):
+
+        if (note_blue := self.voct[BLUE]):
             if note_blue.__class__ is SlewLimiter:
                 note_blue = note_blue.output
-            outputs.cv_b = helpers.voct(note_blue, state.pitch_bend, range=12)
+            outputs._cv_b.voltage = (
+                note_to_volts_per_octave(note_blue)
+                + offset_for_pitch_bend(state.pitch_bend, range=12)
+            )
             if self.triggers[BLUE]:
-                outputs.retrigger_gate_2()
+                outputs._gate_2_retrigger.retrigger()
         else:
             outputs.gate_2 = False
 
@@ -105,61 +117,64 @@ class RedBlue:
         # cutoff
         bump = state.pressure/4 + (0.25 if self.is_accent else 0.0)
         outputs.cv_d = -5.0 + min(state.cc(4) + bump, 1.0) * 10.0
-        gc.enable()
-        if time.monotonic_ns() - last_out > 1000000000:
-            last_out = time.monotonic_ns()
+        micropython.heap_unlock()
+
+        now = supervisor.ticks_ms()
+        if now - last_out > 1000:
+            last_out = now
             print(f"{counter} callback calls")
             counter = 0
 
     @micropython.native
     def note_off(self, note):
+        micropython.heap_lock()
         for n in VOICES:
-            assign = self.assignments[n][0]
+            assign = self.voct[n]
             if (
                 assign == note
                 or (assign.__class__ is SlewLimiter and assign.target == note)
             ):
-                self.assignments[n][0] = None
+                self.voct[n] = None
                 self.triggers[n] = False
                 self.gates[n] = False
+        micropython.heap_unlock()
 
     @micropython.native
     def note_on(self, note, assignment_index):
-        now = time.monotonic_ns()
-
-        self.assignments[assignment_index][0] = note
-        self.assignments[assignment_index][1] = now
+        micropython.heap_lock()
+        self.voct[assignment_index] = note
         self.gates[assignment_index] = True
         self.triggers[assignment_index] = True
+        self.last_assignment_index = assignment_index
+        micropython.heap_unlock()
 
     @micropython.native
     def legato(self, from_note, to_note, assignment_index, glide=False):
-        now = time.monotonic_ns()
-
+        micropython.heap_lock()
         if glide:
             slew = self.slews[assignment_index]
             slew.last = from_note
             slew.target = to_note
             to_note = slew
 
-        self.assignments[assignment_index][0] = to_note
-        self.assignments[assignment_index][1] = now
+        self.voct[assignment_index] = to_note
+        self.last_assignment_index = assignment_index
         self.gates[assignment_index] = True
+        micropython.heap_unlock()
 
     @micropython.native
     def select_voice(self):
-        oldest_time = 0
-        oldest_index = 0
-
+        micropython.heap_lock()
         v = RVOICES if self.reverse else VOICES
-        for n in v:
-            if self.assignments[n][0] is None:
-                assignment_index = n
-                break
-            if oldest_time == 0 or self.assignments[n][1] < oldest_time:
-                oldest_time = self.assignments[n][1]
-                oldest_index = n
-        else:
+        try:
+            for n in v:
+                if self.voct[n] is None:
+                    return n
+
             # No free voice, assign to the oldest one.
-            assignment_index = oldest_index
-        return assignment_index
+            if self.last_assignment_index == RED:
+                return BLUE
+            else:
+                return RED
+        finally:
+            micropython.heap_unlock()

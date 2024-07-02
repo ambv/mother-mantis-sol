@@ -33,6 +33,7 @@ value directly.
 """
 
 import analogio
+import micropython
 
 
 def _take_nearest_pair(values, target):
@@ -149,7 +150,19 @@ class VoltageOut:
         if voltage in self._calibration:
             return self._calibration[voltage]
 
-        low, high = _take_nearest_pair(self._calibration_keys, voltage)
+        # INLINE: low, high = _take_nearest_pair(self._calibration_keys, voltage)
+        values = self._calibration_keys
+        low = values[0]
+        high = values[0]
+        for value in values:
+            if value <= voltage and value >= low:
+                low = value
+            if value > voltage:
+                high = value
+                break
+        else:
+            high = low
+        # END INLINE
 
         if high == low:
             normalized_offset = 0
@@ -160,7 +173,6 @@ class VoltageOut:
         high_val = self._calibration[high]
 
         lerped = round(low_val + ((high_val - low_val) * normalized_offset))
-
         return min(lerped, 65535)
 
     def _get_voltage(self):
@@ -240,7 +252,19 @@ class VoltageIn:
         if value in self._calibration:
             return self._calibration[value]
 
-        low, high = _take_nearest_pair(self._calibration_keys, value)
+        # INLINE: low, high = _take_nearest_pair(self._calibration_keys, voltage)
+        values = self._calibration_keys
+        low = values[0]
+        high = values[0]
+        for v in values:
+            if v <= value and v >= low:
+                low = v
+            if v > value:
+                high = v
+                break
+        else:
+            high = low
+        # END INLINE
 
         if high == low:
             normalized_offset = 0

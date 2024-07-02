@@ -26,6 +26,7 @@ import board
 import digitalio
 import micropython
 import neopixel
+import supervisor
 import usb_midi
 import winterbloom_smolmidi as smolmidi
 import winterbloom_voltageio as voltageio
@@ -83,7 +84,7 @@ class State:
     def lowest_note(self):
         return min(self.notes) if self.notes else None
 
-    @micropython.native
+    @micropython.viper
     def cc(self, number):
         return self._cc[number] / 127.0
 
@@ -321,7 +322,7 @@ class Sol:
         state = State()
         counter = 0
         while True:
-            before = time.monotonic_ns()
+            before = supervisor.ticks_ms()
             msg = self._midi_in.receive()
 
             self._process_midi(msg, state)
@@ -340,11 +341,11 @@ class Sol:
                 break
 
             self.outputs.step()
-            after = time.monotonic_ns()
+            after = supervisor.ticks_ms()
             stat[counter] = after - before
             counter += 1
             if counter > 99:
                 counter = 0
-                stat_sum = sum(stat)/100000000.0
-                stat_max = max(stat)/1000000.0
-                print(f"total avg {stat_sum:.2f}ms; max {stat_max:.2f}ms")
+                stat_sum = sum(stat)/100.0
+                stat_max = max(stat)
+                print(f"total avg {stat_sum:.2f}ms; max {stat_max}ms")

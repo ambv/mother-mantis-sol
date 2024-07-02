@@ -20,13 +20,12 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 
-import time
+import micropython
+import supervisor
 
 from winterbloom_sol import _utils
 
-# Use nanaseconds for absolute time throughout to avoid losing precision for float
-# time over long program duration.
-_NS_TO_S = 1000000000
+_MS_TO_S = micropython.const(1000)
 
 
 class SlewLimiter:
@@ -86,15 +85,15 @@ class SlewLimiter:
             return
 
         self._target = value
-        self._set_time = time.monotonic_ns()
+        self._set_time = supervisor.ticks_ms()
 
     @property
     def output(self):
         if self._target is None:
             return 0
 
-        now = time.monotonic_ns()
-        rate_s = self.rate * _NS_TO_S
+        now = supervisor.ticks_ms()
+        rate_s = self.rate * _MS_TO_S
         delta = min(1.0, (now - self._set_time) / rate_s)
 
         return _utils.lerp(self._last, self._target, delta)

@@ -20,11 +20,10 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 
-import time
+import micropython
+import supervisor
 
-# Use nanoseconds for absolute time throughout to avoid losing precision for float
-# time over long program duration.
-_NS_TO_S = 1000000000
+_MS_TO_S = micropython.const(1000)
 
 
 class Trigger:
@@ -61,7 +60,7 @@ class Trigger:
             self._duration = duration_ms
 
         self._output.value = True
-        self._start_time = time.monotonic_ns()
+        self._start_time = supervisor.ticks_ms()
 
         return True
 
@@ -71,8 +70,8 @@ class Trigger:
         if self._start_time is None:
             return
 
-        now = time.monotonic_ns()
-        elapsed_ms = (now - self._start_time) / _NS_TO_S * 1000
+        now = supervisor.ticks_ms()
+        elapsed_ms = now - self._start_time
         if elapsed_ms > self._duration:
             self._output.value = False
             self._start_time = None
@@ -120,8 +119,7 @@ class Retrigger:
             self._duration = duration_ms
 
         self._output.value = False
-        self._start_time = time.monotonic_ns()
-
+        self._start_time = supervisor.ticks_ms()
         return True
 
     __call__ = retrigger
@@ -130,8 +128,8 @@ class Retrigger:
         if self._start_time is None:
             return
 
-        now = time.monotonic_ns()
-        elapsed_ms = (now - self._start_time) / _NS_TO_S * 1000
+        now = supervisor.ticks_ms()
+        elapsed_ms = now - self._start_time
         if elapsed_ms > self._duration:
             self._output.value = True
             self._start_time = None

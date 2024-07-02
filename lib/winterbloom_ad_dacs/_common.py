@@ -88,6 +88,9 @@ class AD568x:
     converters.
     """
 
+    buf = bytearray(300)
+    offset = 0
+
     def __init__(self, spi_device):
         """
         Args:
@@ -119,7 +122,13 @@ class AD568x:
     def send_command(self, command, param1, param2):
         """Directly send a raw command to the DAC."""
         with self.spi_device as spi:
-            spi.write(bytes([command, param1, param2]))
+            buf = self.buf
+            offset = self.offset
+            buf[offset] = command
+            buf[offset + 1] = param1
+            buf[offset + 2] = param2
+            spi.write(buf, start=offset, end=offset + 3)
+            self.offset = (offset + 3) % len(buf)
 
     def soft_reset(self):
         """Soft reset the DAC."""
