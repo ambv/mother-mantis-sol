@@ -40,8 +40,7 @@ class State:
     """
 
     def __init__(self):
-        self.notes = {}
-        self.message = None
+        self.notes = []
         self.velocity = 0
         self.pitch_bend = 0
         self.pressure = 0
@@ -50,80 +49,43 @@ class State:
         self.clock = 0
         self.clock_frequency = 0
 
+    def note_on(self, note):
+        self.notes.append(note)
+
+    def note_off(self, note):
+        try:
+            self.notes.remove(note)
+        except ValueError:
+            pass
+
     @property
     @micropython.native
     def note(self):
-        return self.latest_note
+        return self.notes[-1] if self.notes else None
 
     @property
     @micropython.native
     def latest_note(self):
-        if not self.notes:
-            return None
-
-        latest_note = None
-        latest_time = 0
-        for note, note_time in self.notes.items():
-            if latest_time == 0 or note_time > latest_time:
-                latest_note = note
-                latest_time = note_time
-
-        return latest_note
+        return self.notes[-1] if self.notes else None
 
     @property
     @micropython.native
     def oldest_note(self):
-        if not self.notes:
-            return None
-
-        oldest_note = None
-        oldest_time = 0
-        for note, note_time in self.notes.items():
-            if oldest_time == 0 or note_time < oldest_time:
-                oldest_note = note
-                oldest_time = note_time
-
-        return oldest_note
+        return self.notes[0] if self.notes else None
 
     @property
     @micropython.native
     def highest_note(self):
-        if not self.notes:
-            return None
-
-        highest_note = 0
-        for note in self.notes.keys():
-            if highest_note == 0 or note > highest_note:
-                highest_note = note
-
-        return highest_note
+        return max(self.notes) if self.notes else None
 
     @property
     @micropython.native
     def lowest_note(self):
-        if not self.notes:
-            return None
-
-        lowest_note = 0
-        for note in self.notes.keys():
-            if lowest_note == 0 or note < lowest_note:
-                lowest_note = note
-
-        return lowest_note
+        return min(self.notes) if self.notes else None
 
     @micropython.native
     def cc(self, number):
         return self._cc[number] / 127.0
-
-    @micropython.native
-    def copy_from(self, other):
-        self.notes = other.notes.copy()
-        self.message = other.message
-        self.velocity = other.velocity
-        self.pitch_bend = other.pitch_bend
-        self.playing = other.playing
-        self.clock = other.clock
-        self._cc[:] = other._cc[:]
 
 
 class StatusLED:
@@ -287,6 +249,9 @@ class _StopLoop(Exception):
     pass
 
 
+stat = [0] * 100
+
+
 class Sol:
     def __init__(self):
         self.outputs = Outputs()
@@ -298,50 +263,12 @@ class Sol:
 
     @micropython.native
     def _process_midi(self, msg, state):
-        state.message = msg
-
         if not msg:
             return
 
-        if msg.type == smolmidi.NOTE_ON:
-            # Some controllers send note on with velocity 0
-            # to signal note off.
-            if msg.data[1] == 0:
-                state.notes.pop(msg.data[0], None)
-                state.velocity = 0
-                state.message.type = smolmidi.NOTE_OFF
-            else:
-                state.notes[msg.data[0]] = time.monotonic_ns()
-                state.velocity = msg.data[1] / 127.0
+        msg_type = msg.type
 
-        elif msg.type == smolmidi.NOTE_OFF:
-            state.notes.pop(msg.data[0], None)
-            state.velocity = msg.data[1] / 127.0
-
-        elif msg.type == smolmidi.CC:
-            state._cc[msg.data[0]] = msg.data[1]
-
-        elif msg.type == smolmidi.PITCH_BEND:
-            pitch_bend_value = (((msg.data[1] << 7) | msg.data[0]) - 8192) / 8192
-            state.pitch_bend = pitch_bend_value
-
-        elif msg.type == smolmidi.CHANNEL_PRESSURE:
-            state.pressure = msg.data[0] / 127.0
-
-        # Alias polyphonic aftertouch to pressure. While this discards the
-        # note information, it does make this easier to get at for most
-        # users. It's also always possible to access the raw MIDI message.
-        elif msg.type == smolmidi.AFTERTOUCH:
-            state.pressure = msg.data[1] / 127.0
-
-        elif msg.type == smolmidi.START or msg.type == smolmidi.CONTINUE:
-            state.playing = True
-
-        elif msg.type == smolmidi.STOP:
-            state.playing = False
-            self._clocks = 0
-
-        elif msg.type == smolmidi.CLOCK:
+        if msg_type == smolmidi.CLOCK:
             self._clocks += 1
 
             # Every quarter note, re-calculate the current BPM/clock frequency
@@ -351,23 +278,73 @@ class Sol:
                 state.clock_frequency = 60000000000 / period
                 self._last_clock = now
 
-    def run(self, loop):
-        last = State()
-        current = State()
-        while True:
-            msg = self._midi_in.receive()
-            self._process_midi(msg, current)
-            current.clock = self._clocks
+        elif msg_type == smolmidi.NOTE_ON:
+            # Some controllers send note on with velocity 0
+            # to signal note off.
+            if msg.data[1] == 0:
+                state.note_off(msg.data[0])
+                state.velocity = 0
+                msg.type = smolmidi.NOTE_OFF
+            else:
+                state.note_on(msg.data[0])
+                state.velocity = msg.data[1] / 127.0
 
-            if msg and not msg.type == smolmidi.CLOCK:
-                self.outputs.led.spin()
-            elif msg and msg.type == smolmidi.CLOCK and self._clocks % (96 / 4) == 0:
-                self.outputs.led.pulse()
+        elif msg_type == smolmidi.NOTE_OFF:
+            state.note_off(msg.data[0])
+            state.velocity = msg.data[1] / 127.0
+
+        elif msg_type == smolmidi.CC:
+            state._cc[msg.data[0]] = msg.data[1]
+
+        elif msg_type == smolmidi.PITCH_BEND:
+            pitch_bend_value = (((msg.data[1] << 7) | msg.data[0]) - 8192) / 8192
+            state.pitch_bend = pitch_bend_value
+
+        elif msg_type == smolmidi.CHANNEL_PRESSURE:
+            state.pressure = msg.data[0] / 127.0
+
+        # Alias polyphonic aftertouch to pressure. While this discards the
+        # note information, it does make this easier to get at for most
+        # users. It's also always possible to access the raw MIDI message.
+        elif msg_type == smolmidi.AFTERTOUCH:
+            state.pressure = msg.data[1] / 127.0
+
+        elif msg_type == smolmidi.START or msg_type == smolmidi.CONTINUE:
+            state.playing = True
+
+        elif msg_type == smolmidi.STOP:
+            state.playing = False
+            self._clocks = 0
+
+    @micropython.viper
+    def run(self, loop):
+        state = State()
+        counter = 0
+        while True:
+            before = time.monotonic_ns()
+            msg = self._midi_in.receive()
+
+            self._process_midi(msg, state)
+            state.clock = self._clocks
+
+            if msg:
+                if msg.type == smolmidi.CLOCK:
+                    if int(self._clocks) % 24 == 0:  # 96 / 4
+                        self.outputs.led.pulse()
+                else:
+                    self.outputs.led.spin()
 
             try:
-                loop(last, current, self.outputs)
+                loop(state, msg, self.outputs)
             except _StopLoop:
                 break
 
-            last.copy_from(current)
             self.outputs.step()
+            after = time.monotonic_ns()
+            stat[counter] = after - before
+            counter += 1
+            if counter > 99:
+                counter = 0
+                stat_sum = sum(stat)/100000000.0
+                stat_max = max(stat)/1000000.0
+                print(f"total avg {stat_sum:.2f}ms; max {stat_max:.2f}ms")

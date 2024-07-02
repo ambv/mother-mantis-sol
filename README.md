@@ -38,6 +38,8 @@ This is based on Sol 2022.10.17 with the following changes:
 - neopixel.mpy is replaced with
   [the latest release](https://github.com/adafruit/Adafruit_CircuitPython_NeoPixel/releases)
   for Circuit Python 9 (Mother Mantis runs on 9.0.5)
+- there's no `last` State in `Sol.run`, use your own tracking if needed
+- State doesn't store the `message` property to reduce pressure on GC
 - SlewLimiter has a writable `last` property, which enables you to use
   it only selectively
 - the LED pulses on quarter notes like Ableton Live's click track

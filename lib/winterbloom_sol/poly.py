@@ -37,7 +37,7 @@ class PolyNoteTracker:
             self.gates.append(False)
             self.triggers.append(False)
 
-    def update(self, state):
+    def update(self, state, message):
         now = time.monotonic_ns()
 
         # clear all triggers from the last update,
@@ -46,14 +46,14 @@ class PolyNoteTracker:
         for n in range(self.num_voices):
             self.triggers[n] = False
 
-        if not state.message:
+        if not message:
             return
 
-        if state.message.type == smolmidi.NOTE_ON:
+        if message.type == smolmidi.NOTE_ON:
             # The idea here is to go through all of the voice assignments
             # and either find an unassigned voice or find the oldest one.
             # That becomes the slot for the new note.
-            note = state.message.data[0]
+            note = message.data[0]
             assignment_index = None
             oldest_time = None
             oldest_index = None
@@ -74,8 +74,8 @@ class PolyNoteTracker:
             self.gates[assignment_index] = True
             self.triggers[assignment_index] = True
 
-        elif state.message.type == smolmidi.NOTE_OFF:
-            note = state.message.data[0]
+        elif message.type == smolmidi.NOTE_OFF:
+            note = message.data[0]
             for n in range(self.num_voices):
                 if self._assignments[n][0] == note:
                     self._assignments[n][0] = None

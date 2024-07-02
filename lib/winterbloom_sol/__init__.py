@@ -25,9 +25,7 @@ from winterbloom_sol.helpers import (
     map,
     note_to_volts_per_octave,
     offset_for_pitch_bend,
-    should_trigger_clock,
     voct,
-    was_key_pressed,
 )
 from winterbloom_sol.lfo import SawtoothLFO, SineLFO, TriangleLFO
 from winterbloom_sol.poly import Poly
@@ -50,7 +48,6 @@ __all__ = [
     "Retrigger",
     "run",
     "SawtoothLFO",
-    "should_trigger_clock",
     "SineLFO",
     "SlewLimiter",
     "Sol",
@@ -58,5 +55,4 @@ __all__ = [
     "TriangleLFO",
     "Trigger",
     "voct",
-    "was_key_pressed",
 ]

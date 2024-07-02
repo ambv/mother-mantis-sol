@@ -56,27 +56,5 @@ def voct(state_or_note, pitch_bend=0, range=2):
     return note_to_volts_per_octave(note) + offset_for_pitch_bend(pitch_bend, range=range)
 
 
-def was_key_pressed(state):
-    if state.message and state.message.type == smolmidi.NOTE_ON:
-        return True
-    else:
-        return False
-
-
-def should_trigger_clock(state, division):
-    operand = int(96 / division)
-
-    if not state.playing:
-        return False
-
-    if not (state.message and state.message.type == smolmidi.CLOCK):
-        return False
-
-    if state.clock % operand == 0:
-        return True
-    else:
-        return False
-
-
 def map(value, src_low, src_hi, dst_low, dst_hi):
     return (value - src_low) * (dst_hi - dst_low) / (src_hi - src_low) + dst_low

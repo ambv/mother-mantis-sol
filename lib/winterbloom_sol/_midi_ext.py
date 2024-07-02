@@ -27,12 +27,14 @@ _DEDUPLICATE_MESSAGES = set(
     [
         smolmidi.CHANNEL_PRESSURE,
         smolmidi.AFTERTOUCH,
-        smolmidi.CC,
+        smolmidi.CC,  # XXX this should check if it's the same CC
         smolmidi.PITCH_BEND,
         smolmidi.SONG_POSITION,
     ]
 )
 
+
+MSG = smolmidi.Message()
 
 class DeduplicatingMidiIn:
     """Like MidiIn, but can de-duplicate messages.
@@ -51,7 +53,7 @@ class DeduplicatingMidiIn:
             message = self._peeked
             self._peeked = None
         else:
-            message = self._midi_in.receive()
+            message = self._midi_in.receive(MSG)
 
         if message is None:
             return None

@@ -89,6 +89,12 @@ class Message:
 
         return bytes([status_byte] + list(self.data if self.data else []))
 
+    def copy_from(self, other):
+        self.type = other.type
+        self.channel = other.channel
+        self.data = other.data
+        return self
+
 
 class MidiIn:
     def __init__(self, port, enable_running_status=False):
@@ -103,7 +109,7 @@ class MidiIn:
     def error_count(self):
         return self._error_count
 
-    def receive(self):
+    def receive(self, into=None):
         # Before we do anything, check and see if there's an unprocessed
         # sysex message pending. If so, throw it away. The caller has
         # to call receive_sysex if they care about the bytes.
@@ -117,7 +123,7 @@ class MidiIn:
         if not result:
             return None
 
-        message = Message()
+        message = into or Message()
         data_bytes = bytearray()
 
         # Is this a status byte?
@@ -145,6 +151,7 @@ class MidiIn:
             message.channel = status_byte & 0x0F
         else:
             message.type = status_byte
+            message.channel = None
 
         # Read the appropriate number of bytes for each message type.
         if message.type in _LEN_2_MESSAGES:

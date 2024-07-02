@@ -1,17 +1,22 @@
+import gc
 import time
 
-import winterbloom_smolmidi as smolmidi
+import micropython
+from winterbloom_smolmidi import NOTE_ON, NOTE_OFF, CC
 from winterbloom_sol import helpers, SlewLimiter
 
 
-RED = 0
-BLUE = 1
-VOICES = RED, BLUE
-RVOICES = BLUE, RED
-UNISON = 0
-DUOPHONIC = 1
-ACCENT_VOLUME = 92
+RED = micropython.const(0)
+BLUE = micropython.const(1)
+VOICES = micropython.const((RED, BLUE))
+RVOICES = micropython.const((BLUE, RED))
+UNISON = micropython.const(0)
+DUOPHONIC = micropython.const(1)
+ACCENT_VOLUME = micropython.const(92)
 
+
+counter = 0
+last_out = 0
 
 class RedBlue:
     def __init__(self):
@@ -26,12 +31,16 @@ class RedBlue:
         self.slews =[SlewLimiter(0.1), SlewLimiter(0.1)]
         self.is_accent = False
 
-    def update(self, last, state, outputs):
+    @micropython.native
+    def update(self, state, msg, outputs):
+        global counter, last_out
+
+        counter += 1
         self.triggers = [False, False]
 
-        msg = state.message
         if msg:
-            if msg.type == smolmidi.NOTE_ON:
+            if msg.type == NOTE_ON:
+                gc.disable()
                 if msg.channel != self.mode:
                     self.reset(msg.channel)
 
@@ -40,32 +49,42 @@ class RedBlue:
 
                 self.is_accent = velo >= ACCENT_VOLUME
                 if self.mode == UNISON:
-                    latest_note = last.latest_note
-                    if latest_note is None:
+                    notes = state.notes
+                    if len(notes) > 1:
+                        glide = state.cc(64) >= 0.5 or state.cc(65) >= 0.5
+                        self.legato(notes[-2], note, RED, glide)
+                        self.legato(notes[-2], note, BLUE, glide)
+                    else:
                         self.note_on(note, RED)
                         self.note_on(note, BLUE)
-                    else:
-                        glide = state.cc(64) >= 0.5 or state.cc(65) >= 0.5
-                        self.legato(latest_note, note, RED, glide)
-                        self.legato(latest_note, note, BLUE, glide)
                 elif self.mode == DUOPHONIC:
                     assignment_index = self.select_voice()
                     self.note_on(note, assignment_index)
                     self.reverse = not self.reverse
 
-            elif msg.type == smolmidi.NOTE_OFF:
+            elif msg.type == NOTE_OFF:
                 note = msg.data[0]
                 if self.mode == UNISON:
-                    latest_note = state.latest_note
-                    if latest_note is None:
-                        self.note_off(note)
-                    else:
+                    notes = state.notes
+                    if notes:
                         glide = state.cc(64) >= 0.5 or state.cc(65) >= 0.5
-                        self.legato(note, latest_note, RED, glide)
-                        self.legato(note, latest_note, BLUE, glide)
+                        self.legato(note, notes[-1], RED, glide)
+                        self.legato(note, notes[-1], BLUE, glide)
+                    else:
+                        self.note_off(note)
+                elif self.mode == DUOPHONIC:
+                    self.note_off(note)
+            
+            elif msg.type == CC:
+                if msg.data[0] == 120 or msg.data[0] == 123:
+                    self.reset(self.mode)
+                # elif msg.data[0] == 126:
+                #     self.reset(UNISON)
+                # elif msg.data[0] == 127:
+                #     self.reset(DUOPHONIC)
 
         if (note_red := self.assignments[RED][0]):
-            if isinstance(note_red, SlewLimiter):
+            if note_red.__class__ is SlewLimiter:
                 note_red = note_red.output
             outputs.cv_a = helpers.voct(note_red, state.pitch_bend, range=12)
             if self.triggers[RED]:
@@ -73,7 +92,7 @@ class RedBlue:
         else:
             outputs.gate_1 = False
         if (note_blue := self.assignments[BLUE][0]):
-            if isinstance(note_blue, SlewLimiter):
+            if note_blue.__class__ is SlewLimiter:
                 note_blue = note_blue.output
             outputs.cv_b = helpers.voct(note_blue, state.pitch_bend, range=12)
             if self.triggers[BLUE]:
@@ -86,18 +105,25 @@ class RedBlue:
         # cutoff
         bump = state.pressure/4 + (0.25 if self.is_accent else 0.0)
         outputs.cv_d = -5.0 + min(state.cc(4) + bump, 1.0) * 10.0
+        gc.enable()
+        if time.monotonic_ns() - last_out > 1000000000:
+            last_out = time.monotonic_ns()
+            print(f"{counter} callback calls")
+            counter = 0
 
+    @micropython.native
     def note_off(self, note):
         for n in VOICES:
             assign = self.assignments[n][0]
             if (
                 assign == note
-                or (isinstance(assign, SlewLimiter) and assign.target == note)
+                or (assign.__class__ is SlewLimiter and assign.target == note)
             ):
                 self.assignments[n][0] = None
                 self.triggers[n] = False
                 self.gates[n] = False
 
+    @micropython.native
     def note_on(self, note, assignment_index):
         now = time.monotonic_ns()
 
@@ -106,6 +132,7 @@ class RedBlue:
         self.gates[assignment_index] = True
         self.triggers[assignment_index] = True
 
+    @micropython.native
     def legato(self, from_note, to_note, assignment_index, glide=False):
         now = time.monotonic_ns()
 
@@ -119,6 +146,7 @@ class RedBlue:
         self.assignments[assignment_index][1] = now
         self.gates[assignment_index] = True
 
+    @micropython.native
     def select_voice(self):
         oldest_time = 0
         oldest_index = 0
