@@ -84,8 +84,8 @@ class RedBlue:
         # rez
         outputs.cv_c = -5.0 + state.cc(1) * 10.0
         # cutoff
-        accent_bump = 0.25 if self.is_accent else 0.0
-        outputs.cv_d = -5.0 + min(state.cc(4) + accent_bump, 1.0) * 10.0
+        bump = state.pressure/4 + (0.25 if self.is_accent else 0.0)
+        outputs.cv_d = -5.0 + min(state.cc(4) + bump, 1.0) * 10.0
 
     def note_off(self, note):
         for n in VOICES:

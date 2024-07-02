@@ -4,6 +4,9 @@ This is the controller software installed on
 [Mother Mantis](https://modulargrid.net/e/racks/view/2502933).
 It provides a fat duophonic instrument with deep expression control.
 
+It is roughly based on
+[aiotone.redblue](https://github.com/ambv/aiotone/blob/master/aiotone/redblue.py).
+
 ## Usage
 The mod wheel (CC1) set Resonance for both Mothers.
 
@@ -20,17 +23,15 @@ the other Mother will be used. If you hold two notes and press another,
 the oldest note will be replaced. This allows you to play two-note chords
 and stereo arps.
 
+Velocity over 92 causes an "accent", which is a 25% cutoff bump.
+Aftertouch also causes up to a 25% cutoff bump. While poly AT is read,
+it's treated as channel AT.
+
 ## TODO
 
-This is roughly based on
-[aiotone.redblue](https://github.com/ambv/aiotone/blob/master/aiotone/redblue.py)
-which also supports accents.
-
-Aftertouch should be supported as well. Maybe CV C and CV D should output 
-red cutoff and blue cutoff respectively, to allow for polyphonic AT?
-
-In this case resonance CV would have to be encoded with pulses and
-decoded by Crow.
+Maybe CV C and CV D should output  red cutoff and blue cutoff
+respectively, to allow for polyphonic aftertouch?  In this case
+resonance CV would have to be encoded with pulses and decoded by Crow.
 
 ## Winterbloom Sol software
 This is based on Sol 2022.10.17 with the following changes:
