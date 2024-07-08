@@ -54,10 +54,11 @@ class State:
         self.notes.append(note)
 
     def note_off(self, note):
-        try:
-            self.notes.remove(note)
-        except ValueError:
-            pass
+        while True:
+            try:
+                self.notes.remove(note)
+            except ValueError:
+                break
 
     @property
     @micropython.native

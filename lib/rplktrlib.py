@@ -45,6 +45,7 @@ class RedBlue:
                 if msg.channel != self.mode:
                     micropython.heap_unlock()
                     self.reset(msg.channel)
+                    state.notes.clear()
                     micropython.heap_lock()
 
                 note = msg.data[0]
@@ -82,6 +83,7 @@ class RedBlue:
                 micropython.heap_unlock()
                 if msg.data[0] == 120 or msg.data[0] == 123:
                     self.reset(self.mode)
+                    state.notes.clear()
                 # elif msg.data[0] == 126:
                 #     self.reset(UNISON)
                 # elif msg.data[0] == 127:
