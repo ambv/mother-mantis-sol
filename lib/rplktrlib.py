@@ -37,6 +37,7 @@ class RedBlue:
         counter += 1
         
         micropython.heap_lock()
+        # triggers will be turned on inside `note_on()`
         self.triggers[0] = False
         self.triggers[1] = False
 
@@ -113,6 +114,16 @@ class RedBlue:
                 outputs._gate_2_retrigger.retrigger()
         else:
             outputs.gate_2 = False
+
+        if any(self.triggers):
+            outputs._gate_3_retrigger.retrigger()
+            outputs._gate_4_retrigger.retrigger()
+        elif note_red or note_blue:
+            outputs.gate_3 = True
+            outputs.gate_4 = True
+        else:
+            outputs.gate_3 = False
+            outputs.gate_4 = False
 
         # rez
         outputs.cv_c = -5.0 + state.cc(1) * 10.0
