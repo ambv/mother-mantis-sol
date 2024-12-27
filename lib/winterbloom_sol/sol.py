@@ -46,6 +46,7 @@ class State:
         self.pitch_bend = 0
         self.pressure = 0
         self._cc = bytearray(128)
+        self._aftertouch = bytearray(128)
         self.playing = False
         self.clock = 0
         self.clock_frequency = 0
@@ -59,6 +60,7 @@ class State:
                 self.notes.remove(note)
             except ValueError:
                 break
+        self._aftertouch[note] = 0
 
     @property
     @micropython.native
@@ -88,6 +90,10 @@ class State:
     @micropython.viper
     def cc(self, number):
         return self._cc[number] / 127.0
+
+    @micropython.viper
+    def aftertouch(self, note):
+        return self._aftertouch[note] / 127.0
 
 
 class StatusLED:
@@ -305,11 +311,8 @@ class Sol:
         elif msg_type == smolmidi.CHANNEL_PRESSURE:
             state.pressure = msg.data[0] / 127.0
 
-        # Alias polyphonic aftertouch to pressure. While this discards the
-        # note information, it does make this easier to get at for most
-        # users. It's also always possible to access the raw MIDI message.
         elif msg_type == smolmidi.AFTERTOUCH:
-            state.pressure = msg.data[1] / 127.0
+            state._aftertouch[msg.data[0]] = msg.data[1]
 
         elif msg_type == smolmidi.START or msg_type == smolmidi.CONTINUE:
             state.playing = True

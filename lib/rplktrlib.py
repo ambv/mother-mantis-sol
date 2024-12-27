@@ -14,6 +14,16 @@ DUOPHONIC = micropython.const(1)
 ACCENT_VOLUME = micropython.const(92)
 
 
+MIN_V = -5
+MAX_V = 8
+V_RANGE = MAX_V - MIN_V
+BAND_COUNT = 128
+BAND_WIDTH = V_RANGE / BAND_COUNT
+MARGIN = BAND_WIDTH / 8
+CUTOFF_BANDS = {}
+for i in range(BAND_COUNT):
+    CUTOFF_BANDS[i] = i * BAND_WIDTH
+
 counter = 0
 last_out = 0
 
@@ -25,10 +35,12 @@ class RedBlue:
         self.voct = [None, None]
         self.gates = [False, False]
         self.triggers = [False, False]
-        self.mode = mode
-        self.reverse = False
+        self.cutoff = [0.0, 0.0]
+        self.rez = [0.0, 0.0]
+        self.mode = mode  # UNISON or DUOPHONIC
+        self.reverse = False  # look at VOICES or RVOICES?
         self.slews =[SlewLimiter(0.1), SlewLimiter(0.1)]
-        self.is_accent = False
+        self.is_accent = [False, False]
 
     @micropython.native
     def update(self, state, msg, outputs):
@@ -38,8 +50,13 @@ class RedBlue:
         
         micropython.heap_lock()
         # triggers will be turned on inside `note_on()`
-        self.triggers[0] = False
-        self.triggers[1] = False
+        self.triggers[RED] = False
+        self.triggers[BLUE] = False
+        # cutoff and rez are recalculated every pass
+        self.cutoff[RED] = 0.0
+        self.cutoff[BLUE] = 0.0
+        self.rez[RED] = 0.0
+        self.rez[BLUE] = 0.0
 
         if msg:
             if msg.type == NOTE_ON:
@@ -52,7 +69,6 @@ class RedBlue:
                 note = msg.data[0]
                 velo = msg.data[1]
 
-                self.is_accent = velo >= ACCENT_VOLUME
                 if self.mode == UNISON:
                     notes = state.notes
                     if len(notes) > 1:
@@ -60,10 +76,13 @@ class RedBlue:
                         self.legato(notes[-2], note, RED, glide)
                         self.legato(notes[-2], note, BLUE, glide)
                     else:
+                        self.is_accent[RED] = velo >= ACCENT_VOLUME
+                        self.is_accent[BLUE] = velo >= ACCENT_VOLUME
                         self.note_on(note, RED)
                         self.note_on(note, BLUE)
                 elif self.mode == DUOPHONIC:
                     assignment_index = self.select_voice()
+                    self.is_accent[assignment_index] = velo >= ACCENT_VOLUME
                     self.note_on(note, assignment_index)
                     self.reverse = not self.reverse
 
@@ -100,6 +119,7 @@ class RedBlue:
             )
             if self.triggers[RED]:
                 outputs._gate_1_retrigger.retrigger()
+            self.cutoff[RED] += 0.25 * state.aftertouch(note_red)
         else:
             outputs.gate_1 = False
 
@@ -112,6 +132,7 @@ class RedBlue:
             )
             if self.triggers[BLUE]:
                 outputs._gate_2_retrigger.retrigger()
+            self.cutoff[BLUE] += 0.25 * state.aftertouch(note_blue)
         else:
             outputs.gate_2 = False
 
@@ -125,18 +146,33 @@ class RedBlue:
             outputs.gate_3 = False
             outputs.gate_4 = False
 
-        # rez
-        outputs.cv_c = -5.0 + state.cc(1) * 10.0
-        # cutoff
-        bump = state.pressure/4 + (0.25 if self.is_accent else 0.0)
-        outputs.cv_d = -5.0 + min(state.cc(4) + bump, 1.0) * 10.0
+        common_cutoff_base = state.cc(4) + state.cc(11)
+        common_rez_base = state.cc(1)
+        self.cutoff[RED] += common_cutoff_base + (0.25 if self.is_accent[RED] else 0.0)
+        self.cutoff[BLUE] += common_cutoff_base + (0.25 if self.is_accent[BLUE] else 0.0)
+        self.rez[RED] += common_rez_base + state.cc(16)
+        self.rez[BLUE] += common_rez_base + state.cc(17)
+
+        outputs.cv_c = self.cutoff_rez_cv(self.cutoff[RED], self.rez[RED])
+        outputs.cv_d = self.cutoff_rez_cv(self.cutoff[BLUE], self.rez[BLUE])
+
         micropython.heap_unlock()
 
         now = supervisor.ticks_ms()
         if now - last_out > 1000:
             last_out = now
-            print(f"{counter} callback calls")
+            # print(f"{counter} callback calls")
+            print(1, outputs.cv_c, self.cutoff[RED], self.rez[RED])
+            print(2, outputs.cv_d, self.cutoff[BLUE], self.rez[BLUE])
             counter = 0
+    
+    @micropython.native
+    def cutoff_rez_cv(self, cutoff, rez):
+        # micropython.heap_lock()
+        band = CUTOFF_BANDS[int(min(cutoff, 1.0) * (BAND_COUNT - 1))]
+        # return -5.0 + 13.0 * (band + MARGIN + rez * (BAND_WIDTH - MARGIN))
+        return -5.0 + band
+        # micropython.heap_unlock()
 
     @micropython.native
     def note_off(self, note):
