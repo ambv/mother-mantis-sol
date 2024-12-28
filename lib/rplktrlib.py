@@ -1,4 +1,3 @@
-import random
 import micropython
 import supervisor
 from winterbloom_smolmidi import NOTE_ON, NOTE_OFF, CC
@@ -13,7 +12,17 @@ RVOICES = micropython.const((BLUE, RED))
 UNISON = micropython.const(0)
 DUOPHONIC = micropython.const(1)
 ACCENT_VOLUME = micropython.const(92)
-
+CUTOFF = micropython.const(0)
+REZ = micropython.const(1)
+BANDS = micropython.const((
+    (-4.25, REZ, RED),
+    (-2.50, CUTOFF, BLUE),
+    (-0.75, CUTOFF, RED),
+    (+1.00, REZ, BLUE),
+    (+2.75, CUTOFF, RED),
+    (+4.50, CUTOFF, BLUE),
+    (+6.25, REZ, RED),
+))
 
 counter = 0
 last_out = 0
@@ -32,7 +41,8 @@ class RedBlue:
         self.reverse = False  # look at VOICES or RVOICES?
         self.slews =[SlewLimiter(0.1), SlewLimiter(0.1)]
         self.is_accent = [False, False]
-        random.seed(44)
+        self.current_band = 0
+        self.band_direction = +1
 
     @micropython.native
     def update(self, state, msg, outputs):
@@ -145,31 +155,24 @@ class RedBlue:
         self.rez[RED] += common_rez_base + state.cc(16)
         self.rez[BLUE] += common_rez_base + state.cc(17)
 
-        outputs.cv_c = self.cutoff_rez_cv(self.cutoff[RED], self.rez[RED], self.is_accent[RED])
-        outputs.cv_d = self.cutoff_rez_cv(self.cutoff[BLUE], self.rez[BLUE], self.is_accent[BLUE])
+        # Seven bands going back and forth
+        outputs.cv_d, kind, color = BANDS[self.current_band]
+        outputs.cv_c = -5.0 + 10.0 * (self.rez if kind == REZ else self.cutoff)[color]
+
+        if self.current_band == 0:
+            self.band_direction = +1
+        elif self.current_band == 6:
+            self.band_direction = -1
+        self.current_band += self.band_direction
 
         micropython.heap_unlock()
 
         now = supervisor.ticks_ms()
         if now - last_out > 1000:
             last_out = now
-            # print(f"{counter} callback calls")
-            print(1, outputs.cv_c, self.cutoff[RED], self.rez[RED])
-            print(2, outputs.cv_d, self.cutoff[BLUE], self.rez[BLUE])
+            print(f"{counter} callback calls")
             counter = 0
     
-    @micropython.native
-    def cutoff_rez_cv(self, cutoff, rez, is_accent):
-        micropython.heap_lock()
-        if is_accent or random.random() >= 0.5:
-            # range +3v .. +8v
-            result = 3.0 + 5.0 * min(1.0, max(0.0, cutoff))
-        else:
-            # range -5v .. 0v (value reversed)
-            result = -1 * (5.0 * min(1.0, max(0.0, rez)))
-        micropython.heap_unlock()
-        return result
-
     @micropython.native
     def note_off(self, note):
         micropython.heap_lock()
