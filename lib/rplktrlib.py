@@ -12,20 +12,12 @@ RVOICES = micropython.const((BLUE, RED))
 UNISON = micropython.const(0)
 DUOPHONIC = micropython.const(1)
 ACCENT_VOLUME = micropython.const(92)
-CUTOFF = micropython.const(0)
-REZ = micropython.const(1)
-BANDS = micropython.const((
-    (-4.25, REZ, RED),
-    (-2.50, CUTOFF, BLUE),
-    (-0.75, CUTOFF, RED),
-    (+1.00, REZ, BLUE),
-    (+2.75, CUTOFF, RED),
-    (+4.50, CUTOFF, BLUE),
-    (+6.25, REZ, RED),
-))
+REZ_TICKS_PER_100MSEC = micropython.const(14)
 
 counter = 0
 last_out = 0
+rez_ticks = 0
+rez_tick_reset = 0
 
 class RedBlue:
     def __init__(self):
@@ -46,7 +38,7 @@ class RedBlue:
 
     @micropython.native
     def update(self, state, msg, outputs):
-        global counter, last_out
+        global counter, last_out, rez_ticks, rez_tick_reset
 
         counter += 1
         
@@ -140,34 +132,37 @@ class RedBlue:
 
         if any(self.triggers):
             outputs._gate_3_retrigger.retrigger()
-            outputs._gate_4_retrigger.retrigger()
         elif note_red or note_blue:
             outputs.gate_3 = True
-            outputs.gate_4 = True
         else:
             outputs.gate_3 = False
-            outputs.gate_4 = False
 
         common_cutoff_base = state.cc(4) + state.cc(11)
         common_rez_base = state.cc(1)
         self.cutoff[RED] += common_cutoff_base + (0.25 if self.is_accent[RED] else 0.0)
         self.cutoff[BLUE] += common_cutoff_base + (0.25 if self.is_accent[BLUE] else 0.0)
-        self.rez[RED] += common_rez_base + state.cc(16)
-        self.rez[BLUE] += common_rez_base + state.cc(17)
+        # No support for duophonic resonance at this point.
+        # self.rez[RED] += common_rez_base + state.cc(16)
+        # self.rez[BLUE] += common_rez_base + state.cc(17)
 
-        # Seven bands going back and forth
-        outputs.cv_d, kind, color = BANDS[self.current_band]
-        outputs.cv_c = -5.0 + 10.0 * (self.rez if kind == REZ else self.cutoff)[color]
+        outputs.cv_c = -5.0 + 10.0 * self.cutoff[RED]
+        outputs.cv_d = -5.0 + 10.0 * self.cutoff[BLUE]
 
-        if self.current_band == 0:
-            self.band_direction = +1
-        elif self.current_band == 6:
-            self.band_direction = -1
-        self.current_band += self.band_direction
+        if (
+            counter % 2 == 0
+            and rez_ticks < int(REZ_TICKS_PER_100MSEC * common_rez_base)
+        ):
+            rez_ticks += 1
+            outputs.gate_4 = True
+        else:
+            outputs.gate_4 = False
 
         micropython.heap_unlock()
 
         now = supervisor.ticks_ms()
+        if now - rez_tick_reset > 100:
+            rez_tick_reset = now
+            rez_ticks = 0
         if now - last_out > 1000:
             last_out = now
             print(f"{counter} callback calls")
