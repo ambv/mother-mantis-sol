@@ -1,3 +1,4 @@
+import random
 import micropython
 import supervisor
 from winterbloom_smolmidi import NOTE_ON, NOTE_OFF, CC
@@ -13,16 +14,6 @@ UNISON = micropython.const(0)
 DUOPHONIC = micropython.const(1)
 ACCENT_VOLUME = micropython.const(92)
 
-
-MIN_V = -5
-MAX_V = 8
-V_RANGE = MAX_V - MIN_V
-BAND_COUNT = 128
-BAND_WIDTH = V_RANGE / BAND_COUNT
-MARGIN = BAND_WIDTH / 8
-CUTOFF_BANDS = {}
-for i in range(BAND_COUNT):
-    CUTOFF_BANDS[i] = i * BAND_WIDTH
 
 counter = 0
 last_out = 0
@@ -41,6 +32,7 @@ class RedBlue:
         self.reverse = False  # look at VOICES or RVOICES?
         self.slews =[SlewLimiter(0.1), SlewLimiter(0.1)]
         self.is_accent = [False, False]
+        random.seed(44)
 
     @micropython.native
     def update(self, state, msg, outputs):
@@ -153,8 +145,8 @@ class RedBlue:
         self.rez[RED] += common_rez_base + state.cc(16)
         self.rez[BLUE] += common_rez_base + state.cc(17)
 
-        outputs.cv_c = self.cutoff_rez_cv(self.cutoff[RED], self.rez[RED])
-        outputs.cv_d = self.cutoff_rez_cv(self.cutoff[BLUE], self.rez[BLUE])
+        outputs.cv_c = self.cutoff_rez_cv(self.cutoff[RED], self.rez[RED], self.is_accent[RED])
+        outputs.cv_d = self.cutoff_rez_cv(self.cutoff[BLUE], self.rez[BLUE], self.is_accent[BLUE])
 
         micropython.heap_unlock()
 
@@ -167,12 +159,16 @@ class RedBlue:
             counter = 0
     
     @micropython.native
-    def cutoff_rez_cv(self, cutoff, rez):
-        # micropython.heap_lock()
-        band = CUTOFF_BANDS[int(min(cutoff, 1.0) * (BAND_COUNT - 1))]
-        # return -5.0 + 13.0 * (band + MARGIN + rez * (BAND_WIDTH - MARGIN))
-        return -5.0 + band
-        # micropython.heap_unlock()
+    def cutoff_rez_cv(self, cutoff, rez, is_accent):
+        micropython.heap_lock()
+        if is_accent or random.random() >= 0.5:
+            # range +3v .. +8v
+            result = 3.0 + 5.0 * min(1.0, max(0.0, cutoff))
+        else:
+            # range -5v .. 0v (value reversed)
+            result = -1 * (5.0 * min(1.0, max(0.0, rez)))
+        micropython.heap_unlock()
+        return result
 
     @micropython.native
     def note_off(self, note):
