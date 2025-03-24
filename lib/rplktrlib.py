@@ -1,8 +1,9 @@
 import micropython
-import supervisor
 from winterbloom_smolmidi import NOTE_ON, NOTE_OFF, CC
 from winterbloom_sol.helpers import note_to_volts_per_octave, offset_for_pitch_bend
-from winterbloom_sol import helpers, SlewLimiter
+from winterbloom_sol import SlewLimiter
+
+from adafruit_ticks import ticks_ms, ticks_diff
 
 
 RED = micropython.const(0)
@@ -15,9 +16,9 @@ ACCENT_VOLUME = micropython.const(92)
 REZ_TICKS_PER_100MSEC = micropython.const(14)
 
 counter = 0
-last_out = 0
+last_out = ticks_ms()
 rez_ticks = 0
-rez_tick_reset = 0
+rez_tick_reset = last_out
 
 class RedBlue:
     def __init__(self):
@@ -106,27 +107,31 @@ class RedBlue:
 
         if (note_red := self.voct[RED]):
             if note_red.__class__ is SlewLimiter:
+                self.cutoff[RED] += 0.25 * state.aftertouch(note_red.target)
                 note_red = note_red.output
+            else:
+                self.cutoff[RED] += 0.25 * state.aftertouch(note_red)
             outputs._cv_a.voltage = (
                 note_to_volts_per_octave(note_red)
                 + offset_for_pitch_bend(state.pitch_bend, range=12)
             )
             if self.triggers[RED]:
                 outputs._gate_1_retrigger.retrigger()
-            self.cutoff[RED] += 0.25 * state.aftertouch(note_red)
         else:
             outputs.gate_1 = False
 
         if (note_blue := self.voct[BLUE]):
             if note_blue.__class__ is SlewLimiter:
+                self.cutoff[BLUE] += 0.25 * state.aftertouch(note_blue.target)
                 note_blue = note_blue.output
+            else:
+                self.cutoff[BLUE] += 0.25 * state.aftertouch(note_blue)
             outputs._cv_b.voltage = (
                 note_to_volts_per_octave(note_blue)
                 + offset_for_pitch_bend(state.pitch_bend, range=12)
             )
             if self.triggers[BLUE]:
                 outputs._gate_2_retrigger.retrigger()
-            self.cutoff[BLUE] += 0.25 * state.aftertouch(note_blue)
         else:
             outputs.gate_2 = False
 
@@ -159,11 +164,11 @@ class RedBlue:
 
         micropython.heap_unlock()
 
-        now = supervisor.ticks_ms()
-        if now - rez_tick_reset > 100:
+        now = ticks_ms()
+        if ticks_diff(now, rez_tick_reset) > 100:
             rez_tick_reset = now
             rez_ticks = 0
-        if now - last_out > 1000:
+        if ticks_diff(now, last_out) > 1000:
             last_out = now
             print(f"{counter} callback calls")
             counter = 0
